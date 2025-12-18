@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
@@ -39,13 +39,7 @@ export default function ListDetailPage() {
     }
   }, [status, router])
 
-  useEffect(() => {
-    if (status === 'authenticated' && params.id) {
-      fetchList()
-    }
-  }, [status, params.id])
-
-  const fetchList = async () => {
+  const fetchList = useCallback(async () => {
     try {
       const response = await fetch(`/api/lists/${params.id}`)
       if (response.ok) {
@@ -59,7 +53,13 @@ export default function ListDetailPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [params.id])
+
+  useEffect(() => {
+    if (status === 'authenticated' && params.id) {
+      fetchList()
+    }
+  }, [status, params.id, fetchList])
 
   const updateList = async (e: React.FormEvent) => {
     e.preventDefault()
