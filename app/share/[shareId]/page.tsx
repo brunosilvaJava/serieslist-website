@@ -10,13 +10,23 @@ interface PageProps {
 
 export default async function SharePage({ params }: PageProps) {
   const { shareId } = await params
-  const list = await prisma.list.findUnique({
+  
+  // Optimized query with specific select
+  const list = await prisma.list.findFirst({
     where: {
       shareId,
       isPublic: true,
     },
-    include: {
+    select: {
+      id: true,
+      name: true,
+      isPublic: true,
       series: {
+        select: {
+          id: true,
+          title: true,
+          description: true,
+        },
         orderBy: { createdAt: 'desc' },
       },
       user: {

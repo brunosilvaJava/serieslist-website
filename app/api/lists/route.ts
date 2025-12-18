@@ -12,9 +12,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    // Optimized query with specific select to avoid fetching unnecessary data
     const lists = await prisma.list.findMany({
       where: { userId: session.user.id },
-      include: {
+      select: {
+        id: true,
+        name: true,
+        isPublic: true,
+        shareId: true,
+        userId: true,
+        createdAt: true,
+        updatedAt: true,
         _count: {
           select: { series: true },
         },

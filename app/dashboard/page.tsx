@@ -3,27 +3,23 @@
 import { useState, useEffect } from 'react'
 import { useSession, signOut } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
-
-interface List {
-  id: string
-  name: string
-  isPublic: boolean
-  shareId: string
-  _count: {
-    series: number
-  }
-  createdAt: string
-}
+import Button from '@/components/ui/Button'
+import Input from '@/components/ui/Input'
+import LoadingSpinner from '@/components/ui/LoadingSpinner'
+import ListCard from '@/components/ListCard'
+import { ListWithCount } from '@/types'
+import { getShareUrl, copyToClipboard } from '@/lib/utils'
 
 export default function DashboardPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
-  const [lists, setLists] = useState<List[]>([])
+  const [lists, setLists] = useState<ListWithCount[]>([])
   const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
   const [newListName, setNewListName] = useState('')
   const [isPublic, setIsPublic] = useState(false)
   const [showNewList, setShowNewList] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -39,13 +35,19 @@ export default function DashboardPage() {
 
   const fetchLists = async () => {
     try {
+      setLoading(true)
+      setError(null)
       const response = await fetch('/api/lists')
-      if (response.ok) {
-        const data = await response.json()
-        setLists(data)
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch lists')
       }
-    } catch (error) {
-      console.error('Error fetching lists:', error)
+      
+      const data = await response.json()
+      setLists(data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load lists')
+      console.error('Error fetching lists:', err)
     } finally {
       setLoading(false)
     }
@@ -53,50 +55,69 @@ export default function DashboardPage() {
 
   const createList = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    if (!newListName.trim()) {
+      setError('List name is required')
+      return
+    }
+
     try {
+      setCreating(true)
+      setError(null)
       const response = await fetch('/api/lists', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newListName, isPublic }),
       })
 
-      if (response.ok) {
-        setNewListName('')
-        setIsPublic(false)
-        setShowNewList(false)
-        fetchLists()
+      if (!response.ok) {
+        throw new Error('Failed to create list')
       }
-    } catch (error) {
-      console.error('Error creating list:', error)
+
+      setNewListName('')
+      setIsPublic(false)
+      setShowNewList(false)
+      await fetchLists()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create list')
+      console.error('Error creating list:', err)
+    } finally {
+      setCreating(false)
     }
   }
 
   const deleteList = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this list?')) return
-
     try {
       const response = await fetch(`/api/lists/${id}`, {
         method: 'DELETE',
       })
 
-      if (response.ok) {
-        fetchLists()
+      if (!response.ok) {
+        throw new Error('Failed to delete list')
       }
-    } catch (error) {
-      console.error('Error deleting list:', error)
+
+      await fetchLists()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete list')
+      console.error('Error deleting list:', err)
     }
   }
 
-  const copyShareLink = (shareId: string) => {
-    const link = `${window.location.origin}/share/${shareId}`
-    navigator.clipboard.writeText(link)
-    alert('Share link copied to clipboard!')
+  const handleCopyShareLink = async (shareId: string) => {
+    const link = getShareUrl(shareId)
+    const success = await copyToClipboard(link)
+    
+    if (success) {
+      alert('Share link copied to clipboard!')
+    } else {
+      alert('Failed to copy link. Please try again.')
+    }
   }
 
   if (status === 'loading' || loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="text-xl">Loading...</div>
+        <LoadingSpinner size="lg" />
       </div>
     )
   }
@@ -110,121 +131,97 @@ export default function DashboardPage() {
       <div className="max-w-6xl mx-auto">
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-3xl font-bold">Dashboard</h1>
+            <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
             <p className="text-gray-600 mt-1">
               Welcome, {session?.user?.email}
             </p>
           </div>
-          <button
+          <Button
             onClick={() => signOut({ callbackUrl: '/' })}
-            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+            variant="danger"
+            aria-label="Sign out"
           >
             Sign Out
-          </button>
+          </Button>
         </div>
+
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg" role="alert">
+            <p className="text-red-800">{error}</p>
+          </div>
+        )}
 
         <div className="mb-6">
           {!showNewList ? (
-            <button
+            <Button
               onClick={() => setShowNewList(true)}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              variant="primary"
+              size="lg"
+              aria-label="Create new list"
             >
               + Create New List
-            </button>
+            </Button>
           ) : (
             <form onSubmit={createList} className="bg-white p-6 rounded-lg shadow">
-              <h3 className="text-xl font-bold mb-4">Create New List</h3>
+              <h3 className="text-xl font-bold mb-4 text-gray-900">Create New List</h3>
               <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    List Name
-                  </label>
-                  <input
-                    type="text"
-                    value={newListName}
-                    onChange={(e) => setNewListName(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 border rounded-lg text-gray-900"
-                    placeholder="My Favorite Series"
-                  />
-                </div>
+                <Input
+                  label="List Name"
+                  type="text"
+                  value={newListName}
+                  onChange={(e) => setNewListName(e.target.value)}
+                  required
+                  placeholder="My Favorite Series"
+                  disabled={creating}
+                />
                 <div className="flex items-center">
                   <input
                     type="checkbox"
                     id="isPublic"
                     checked={isPublic}
                     onChange={(e) => setIsPublic(e.target.checked)}
-                    className="mr-2"
+                    className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    disabled={creating}
                   />
-                  <label htmlFor="isPublic" className="text-sm">
+                  <label htmlFor="isPublic" className="text-sm text-gray-700">
                     Make this list public
                   </label>
                 </div>
                 <div className="flex gap-2">
-                  <button
-                    type="submit"
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                  >
+                  <Button type="submit" variant="primary" isLoading={creating}>
                     Create
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
-                    onClick={() => setShowNewList(false)}
-                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400"
+                    variant="secondary"
+                    onClick={() => {
+                      setShowNewList(false)
+                      setError(null)
+                    }}
+                    disabled={creating}
                   >
                     Cancel
-                  </button>
+                  </Button>
                 </div>
               </div>
             </form>
           )}
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {lists.map((list) => (
-            <div key={list.id} className="bg-white p-6 rounded-lg shadow">
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h3 className="text-xl font-bold">{list.name}</h3>
-                  <p className="text-sm text-gray-600">
-                    {list._count.series} series
-                  </p>
-                </div>
-                {list.isPublic && (
-                  <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded">
-                    Public
-                  </span>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Link
-                  href={`/dashboard/lists/${list.id}`}
-                  className="block w-full text-center px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                >
-                  View Details
-                </Link>
-                {list.isPublic && (
-                  <button
-                    onClick={() => copyShareLink(list.shareId)}
-                    className="w-full px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-                  >
-                    Copy Share Link
-                  </button>
-                )}
-                <button
-                  onClick={() => deleteList(list.id)}
-                  className="w-full px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {lists.length === 0 && (
-          <div className="text-center py-12 text-gray-600">
-            <p>No lists yet. Create your first list to get started!</p>
+        {lists.length > 0 ? (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {lists.map((list) => (
+              <ListCard
+                key={list.id}
+                list={list}
+                onDelete={deleteList}
+                onCopyLink={handleCopyShareLink}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-12 bg-white rounded-lg shadow">
+            <p className="text-gray-600">No lists yet. Create your first list to get started!</p>
           </div>
         )}
       </div>
