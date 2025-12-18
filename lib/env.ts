@@ -10,17 +10,29 @@ const envSchema = z.object({
 export type Env = z.infer<typeof envSchema>
 
 // Validate environment variables on module load
+// Only validate in runtime, not during build
 let env: Env
 
-try {
-  env = envSchema.parse(process.env)
-} catch (error) {
-  if (error instanceof z.ZodError) {
-    console.error('❌ Invalid environment variables:')
-    console.error(JSON.stringify(error.errors, null, 2))
-    throw new Error('Invalid environment variables')
+// Skip validation during build time
+if (process.env.NEXT_PHASE !== 'phase-production-build') {
+  try {
+    env = envSchema.parse(process.env)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      console.error('❌ Invalid environment variables:')
+      console.error(JSON.stringify(error.errors, null, 2))
+      throw new Error('Invalid environment variables')
+    }
+    throw error
   }
-  throw error
+} else {
+  // During build, use placeholder values
+  env = {
+    DATABASE_URL: process.env.DATABASE_URL || 'postgresql://placeholder',
+    NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET || 'placeholder-secret-min-32-characters',
+    NEXTAUTH_URL: process.env.NEXTAUTH_URL || 'http://localhost:3000',
+    NODE_ENV: (process.env.NODE_ENV as 'development' | 'production' | 'test') || 'development',
+  }
 }
 
 export { env }
