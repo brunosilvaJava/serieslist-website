@@ -17,10 +17,28 @@ export async function GET(
 
     const { id } = await params
 
-    const list = await prisma.list.findUnique({
-      where: { id, userId: session.user.id },
-      include: {
+    // Optimized query with specific select for better performance
+    const list = await prisma.list.findFirst({
+      where: { 
+        id, 
+        userId: session.user.id 
+      },
+      select: {
+        id: true,
+        name: true,
+        isPublic: true,
+        shareId: true,
+        userId: true,
+        createdAt: true,
+        updatedAt: true,
         series: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            createdAt: true,
+            updatedAt: true,
+          },
           orderBy: { createdAt: 'desc' },
         },
       },

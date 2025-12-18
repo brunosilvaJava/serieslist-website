@@ -17,7 +17,10 @@ export async function PUT(
 
     const { id } = await params
     const body = await request.json()
-    const validation = serieSchema.safeParse(body)
+    
+    // Import serieUpdateSchema for partial updates
+    const { serieUpdateSchema } = await import('@/lib/validations')
+    const validation = serieUpdateSchema.safeParse(body)
 
     if (!validation.success) {
       return NextResponse.json(
@@ -26,20 +29,40 @@ export async function PUT(
       )
     }
 
-    const { title, description, listId } = validation.data
+    const { title, description } = validation.data
 
+    // Verify ownership with optimized query
     const serie = await prisma.serie.findUnique({
       where: { id },
-      include: { list: true },
+      select: { 
+        id: true,
+        list: {
+          select: {
+            userId: true
+          }
+        }
+      },
     })
 
     if (!serie || serie.list.userId !== session.user.id) {
       return NextResponse.json({ error: 'Serie not found' }, { status: 404 })
     }
 
+    // Update serie
     const updatedSerie = await prisma.serie.update({
       where: { id },
-      data: { title, description, listId },
+      data: { 
+        title, 
+        description: description === null ? null : description 
+      },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        listId: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     })
 
     return NextResponse.json(updatedSerie)
@@ -65,9 +88,17 @@ export async function DELETE(
 
     const { id } = await params
 
+    // Optimized ownership verification
     const serie = await prisma.serie.findUnique({
       where: { id },
-      include: { list: true },
+      select: { 
+        id: true,
+        list: {
+          select: {
+            userId: true
+          }
+        }
+      },
     })
 
     if (!serie || serie.list.userId !== session.user.id) {

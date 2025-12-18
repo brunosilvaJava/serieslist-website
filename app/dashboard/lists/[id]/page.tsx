@@ -4,34 +4,27 @@ import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
-
-interface Serie {
-  id: string
-  title: string
-  description: string | null
-  createdAt: string
-}
-
-interface List {
-  id: string
-  name: string
-  isPublic: boolean
-  shareId: string
-  series: Serie[]
-}
+import Button from '@/components/ui/Button'
+import Input from '@/components/ui/Input'
+import LoadingSpinner from '@/components/ui/LoadingSpinner'
+import SerieItem from '@/components/SerieItem'
+import { ListWithSeries, Serie } from '@/types'
 
 export default function ListDetailPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
   const params = useParams()
-  const [list, setList] = useState<List | null>(null)
+  const [list, setList] = useState<ListWithSeries | null>(null)
   const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
   const [newSerieTitle, setNewSerieTitle] = useState('')
   const [newSerieDesc, setNewSerieDesc] = useState('')
   const [showNewSerie, setShowNewSerie] = useState(false)
   const [editingList, setEditingList] = useState(false)
+  const [updating, setUpdating] = useState(false)
   const [listName, setListName] = useState('')
   const [listIsPublic, setListIsPublic] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -41,15 +34,21 @@ export default function ListDetailPage() {
 
   const fetchList = useCallback(async () => {
     try {
+      setLoading(true)
+      setError(null)
       const response = await fetch(`/api/lists/${params.id}`)
-      if (response.ok) {
-        const data = await response.json()
-        setList(data)
-        setListName(data.name)
-        setListIsPublic(data.isPublic)
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch list')
       }
-    } catch (error) {
-      console.error('Error fetching list:', error)
+      
+      const data = await response.json()
+      setList(data)
+      setListName(data.name)
+      setListIsPublic(data.isPublic)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load list')
+      console.error('Error fetching list:', err)
     } finally {
       setLoading(false)
     }
@@ -63,66 +62,116 @@ export default function ListDetailPage() {
 
   const updateList = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    if (!listName.trim()) {
+      setError('List name is required')
+      return
+    }
+
     try {
+      setUpdating(true)
+      setError(null)
       const response = await fetch(`/api/lists/${params.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: listName, isPublic: listIsPublic }),
       })
 
-      if (response.ok) {
-        setEditingList(false)
-        fetchList()
+      if (!response.ok) {
+        throw new Error('Failed to update list')
       }
-    } catch (error) {
-      console.error('Error updating list:', error)
+
+      setEditingList(false)
+      await fetchList()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update list')
+      console.error('Error updating list:', err)
+    } finally {
+      setUpdating(false)
     }
   }
 
   const createSerie = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    if (!newSerieTitle.trim()) {
+      setError('Serie title is required')
+      return
+    }
+
     try {
+      setCreating(true)
+      setError(null)
       const response = await fetch('/api/series', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: newSerieTitle,
-          description: newSerieDesc,
+          description: newSerieDesc || null,
           listId: params.id,
         }),
       })
 
-      if (response.ok) {
-        setNewSerieTitle('')
-        setNewSerieDesc('')
-        setShowNewSerie(false)
-        fetchList()
+      if (!response.ok) {
+        throw new Error('Failed to create serie')
       }
-    } catch (error) {
-      console.error('Error creating serie:', error)
+
+      setNewSerieTitle('')
+      setNewSerieDesc('')
+      setShowNewSerie(false)
+      await fetchList()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create serie')
+      console.error('Error creating serie:', err)
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const updateSerie = async (id: string, title: string, description: string | null) => {
+    try {
+      setError(null)
+      const response = await fetch(`/api/series/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, description }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to update serie')
+      }
+
+      await fetchList()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update serie')
+      console.error('Error updating serie:', err)
+      throw err
     }
   }
 
   const deleteSerie = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this serie?')) return
-
     try {
+      setError(null)
       const response = await fetch(`/api/series/${id}`, {
         method: 'DELETE',
       })
 
-      if (response.ok) {
-        fetchList()
+      if (!response.ok) {
+        throw new Error('Failed to delete serie')
       }
-    } catch (error) {
-      console.error('Error deleting serie:', error)
+
+      await fetchList()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete serie')
+      console.error('Error deleting serie:', err)
+      throw err
     }
   }
 
   if (status === 'loading' || loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="text-xl">Loading...</div>
+        <LoadingSpinner size="lg" />
       </div>
     )
   }
@@ -137,74 +186,79 @@ export default function ListDetailPage() {
         <div className="mb-6">
           <Link
             href="/dashboard"
-            className="text-blue-600 hover:text-blue-700 mb-4 inline-block"
+            className="text-blue-600 hover:text-blue-700 mb-4 inline-block font-medium"
           >
             ← Back to Dashboard
           </Link>
         </div>
+
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg" role="alert">
+            <p className="text-red-800">{error}</p>
+          </div>
+        )}
 
         <div className="bg-white p-6 rounded-lg shadow mb-6">
           {!editingList ? (
             <div>
               <div className="flex justify-between items-start">
                 <div>
-                  <h1 className="text-3xl font-bold">{list.name}</h1>
+                  <h1 className="text-3xl font-bold text-gray-900">{list.name}</h1>
                   {list.isPublic && (
-                    <span className="inline-block mt-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded">
+                    <span className="inline-block mt-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded font-medium">
                       Public
                     </span>
                   )}
                 </div>
-                <button
+                <Button
                   onClick={() => setEditingList(true)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  variant="primary"
+                  aria-label="Edit list"
                 >
                   Edit List
-                </button>
+                </Button>
               </div>
             </div>
           ) : (
             <form onSubmit={updateList}>
-              <h3 className="text-xl font-bold mb-4">Edit List</h3>
+              <h3 className="text-xl font-bold mb-4 text-gray-900">Edit List</h3>
               <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    List Name
-                  </label>
-                  <input
-                    type="text"
-                    value={listName}
-                    onChange={(e) => setListName(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 border rounded-lg text-gray-900"
-                  />
-                </div>
+                <Input
+                  label="List Name"
+                  type="text"
+                  value={listName}
+                  onChange={(e) => setListName(e.target.value)}
+                  required
+                  disabled={updating}
+                />
                 <div className="flex items-center">
                   <input
                     type="checkbox"
                     id="editIsPublic"
                     checked={listIsPublic}
                     onChange={(e) => setListIsPublic(e.target.checked)}
-                    className="mr-2"
+                    className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    disabled={updating}
                   />
-                  <label htmlFor="editIsPublic" className="text-sm">
+                  <label htmlFor="editIsPublic" className="text-sm text-gray-700">
                     Make this list public
                   </label>
                 </div>
                 <div className="flex gap-2">
-                  <button
-                    type="submit"
-                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                  >
+                  <Button type="submit" variant="primary" isLoading={updating}>
                     Save
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
-                    onClick={() => setEditingList(false)}
-                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400"
+                    variant="secondary"
+                    onClick={() => {
+                      setEditingList(false)
+                      setError(null)
+                    }}
+                    disabled={updating}
                   >
                     Cancel
-                  </button>
+                  </Button>
                 </div>
               </div>
             </form>
@@ -213,85 +267,76 @@ export default function ListDetailPage() {
 
         <div className="mb-6">
           {!showNewSerie ? (
-            <button
+            <Button
               onClick={() => setShowNewSerie(true)}
-              className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700"
+              variant="success"
+              size="lg"
+              aria-label="Add new serie"
             >
               + Add Serie
-            </button>
+            </Button>
           ) : (
             <form onSubmit={createSerie} className="bg-white p-6 rounded-lg shadow">
-              <h3 className="text-xl font-bold mb-4">Add New Serie</h3>
+              <h3 className="text-xl font-bold mb-4 text-gray-900">Add New Serie</h3>
               <div className="space-y-4">
+                <Input
+                  label="Serie Title"
+                  type="text"
+                  value={newSerieTitle}
+                  onChange={(e) => setNewSerieTitle(e.target.value)}
+                  required
+                  placeholder="Breaking Bad"
+                  disabled={creating}
+                />
                 <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Serie Title
-                  </label>
-                  <input
-                    type="text"
-                    value={newSerieTitle}
-                    onChange={(e) => setNewSerieTitle(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 border rounded-lg text-gray-900"
-                    placeholder="Breaking Bad"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2">
+                  <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
                     Description
                   </label>
                   <textarea
+                    id="description"
                     value={newSerieDesc}
                     onChange={(e) => setNewSerieDesc(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg text-gray-900"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                     placeholder="Optional description"
                     rows={3}
+                    disabled={creating}
                   />
                 </div>
                 <div className="flex gap-2">
-                  <button
-                    type="submit"
-                    className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-                  >
+                  <Button type="submit" variant="success" isLoading={creating}>
                     Add
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
-                    onClick={() => setShowNewSerie(false)}
-                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400"
+                    variant="secondary"
+                    onClick={() => {
+                      setShowNewSerie(false)
+                      setError(null)
+                    }}
+                    disabled={creating}
                   >
                     Cancel
-                  </button>
+                  </Button>
                 </div>
               </div>
             </form>
           )}
         </div>
 
-        <div className="space-y-4">
-          {list.series.map((serie) => (
-            <div key={serie.id} className="bg-white p-6 rounded-lg shadow">
-              <div className="flex justify-between items-start">
-                <div className="flex-1">
-                  <h3 className="text-xl font-bold">{serie.title}</h3>
-                  {serie.description && (
-                    <p className="mt-2 text-gray-600">{serie.description}</p>
-                  )}
-                </div>
-                <button
-                  onClick={() => deleteSerie(serie.id)}
-                  className="ml-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {list.series.length === 0 && (
-          <div className="text-center py-12 text-gray-600 bg-white rounded-lg">
-            <p>No series yet. Add your first serie to this list!</p>
+        {list.series.length > 0 ? (
+          <div className="space-y-4">
+            {list.series.map((serie) => (
+              <SerieItem
+                key={serie.id}
+                serie={serie}
+                onUpdate={updateSerie}
+                onDelete={deleteSerie}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-12 bg-white rounded-lg shadow">
+            <p className="text-gray-600">No series yet. Add your first serie to this list!</p>
           </div>
         )}
       </div>
