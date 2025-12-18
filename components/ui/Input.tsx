@@ -7,9 +7,12 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   error?: string
 }
 
+// Generate unique ID counter
+let idCounter = 0
+
 const Input = forwardRef<HTMLInputElement, InputProps>(
   ({ label, error, className = '', id, ...props }, ref) => {
-    const inputId = id || `input-${Math.random().toString(36).substr(2, 9)}`
+    const inputId = id || `input-${++idCounter}`
     
     return (
       <div className="w-full">

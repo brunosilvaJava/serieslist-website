@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { serieSchema } from '@/lib/validations'
+import { serieUpdateSchema } from '@/lib/validations'
 
 export async function PUT(
   request: NextRequest,
@@ -17,9 +17,6 @@ export async function PUT(
 
     const { id } = await params
     const body = await request.json()
-    
-    // Import serieUpdateSchema for partial updates
-    const { serieUpdateSchema } = await import('@/lib/validations')
     const validation = serieUpdateSchema.safeParse(body)
 
     if (!validation.success) {
